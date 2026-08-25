@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and fill in your own values.
+# terraform.tfvars is gitignored: it will hold a real bucket name and a real
+# repository, neither of which belongs in a public repository.
+
+aws_region  = "eu-west-1"
+environment = "dev"
+
+# Must be globally unique and owned by you. The default in variables.tf is a
+# placeholder that will not apply.
+bucket_name = "YOUR-UNIQUE-BUCKET-NAME-HERE"
+
+# The one repository permitted to assume the deploy role.
+github_repository = "YOUR-GITHUB-USERNAME/flightops-lakehouse"
+github_ref        = "refs/heads/main"
+
+# Set to false if this AWS account already has a GitHub OIDC provider: an
+# account may hold only one per URL.
+create_oidc_provider = true
