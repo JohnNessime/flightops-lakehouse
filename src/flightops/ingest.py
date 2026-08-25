@@ -259,10 +259,32 @@ def acquire_snapshot(
         return load_fixture(settings)
 
 
+def partition_segments(snapshot: Snapshot) -> tuple[str, str, str]:
+    """The Hive partition components and object name for a snapshot.
+
+    Shared by the local filesystem writer and the Lambda's S3 writer. A bronze
+    object written on a laptop and one written by the scheduled Lambda must
+    land at the same relative location, or the two paths diverge silently and
+    the catalog only sees one of them.
+    """
+    observed = snapshot.observed_at
+    return (
+        f"dt={observed:%Y-%m-%d}",
+        f"hour={observed:%H}",
+        f"states_{int(observed.timestamp())}.json",
+    )
+
+
 def partition_path(snapshot: Snapshot, settings: Settings) -> Path:
     """Hive-style partition directory for a snapshot: dt=YYYY-MM-DD/hour=HH."""
-    observed = snapshot.observed_at
-    return settings.bronze_root / f"dt={observed:%Y-%m-%d}" / f"hour={observed:%H}"
+    dt, hour, _ = partition_segments(snapshot)
+    return settings.bronze_root / dt / hour
+
+
+def object_key(snapshot: Snapshot, prefix: str = "bronze") -> str:
+    """S3 key for a snapshot, identical in shape to the local path."""
+    dt, hour, name = partition_segments(snapshot)
+    return f"{prefix.strip('/')}/{dt}/{hour}/{name}"
 
 
 def write_snapshot(snapshot: Snapshot, settings: Settings) -> Path:
@@ -274,8 +296,8 @@ def write_snapshot(snapshot: Snapshot, settings: Settings) -> Path:
     """
     directory = partition_path(snapshot, settings)
     directory.mkdir(parents=True, exist_ok=True)
-    epoch = int(snapshot.observed_at.timestamp())
-    destination = directory / f"states_{epoch}.json"
+    _, _, name = partition_segments(snapshot)
+    destination = directory / name
     destination.write_text(
         json.dumps(snapshot.to_envelope(), separators=(",", ":"), sort_keys=True),
         encoding="utf-8",
