@@ -5,10 +5,10 @@ telemetry from the [OpenSky Network](https://opensky-network.org/) public API �
 with a **fully local development and CI path**, so the entire transformation
 layer runs and is tested with zero AWS credentials.
 
-> **Status: Phase 3 of 6 — normalisation.** Scaffold, security contract, tooling,
-> bronze ingestion and the typed silver layer are in place. dbt, Terraform and CI
-> land in subsequent phases. This README is a skeleton and will be rewritten in
-> Phase 6.
+> **Status: Phase 4 of 6 — transformation.** Ingestion, the typed silver layer
+> and the full dbt transformation layer are in place and green on DuckDB.
+> Terraform and CI land in subsequent phases. This README is a skeleton and
+> will be rewritten in Phase 6.
 
 ---
 
@@ -26,7 +26,28 @@ flowchart TD
 
 The central design decision: **the same dbt models run against two adapters** —
 `dbt-duckdb` locally and in CI, `dbt-athena-community` in AWS. One model
-codebase, two profile targets. See `docs/adr/0001-duckdb-and-athena-dual-adapter.md`.
+codebase, two profile targets, and **not a single `{% if target.type %}` in any
+model** — a test fails the build if one appears.
+
+The Athena target is configured and reviewed but **not executed**: the adapter
+lives in the `[aws]` extra and is deliberately absent from CI, so the cloud path
+is proven by inspection, not by a test run. [ADR 0001](docs/adr/0001-duckdb-and-athena-dual-adapter.md)
+says so plainly rather than implying both engines were exercised.
+
+### Marts
+
+| Mart | Grain | What it answers |
+| --- | --- | --- |
+| `mart_country_hourly_activity` | date · hour · country | How many distinct aircraft per country per hour |
+| `mart_altitude_band_distribution` | date · hour · band | How traffic distributes across altitude bands |
+| `mart_ground_activity_ratio` | date · hour · country | Airborne vs on-ground split, a proxy for airport activity |
+| `mart_carrier_activity` | date · hour · carrier | Callsign-prefix rollup joined to a seeded ICAO designator reference |
+
+### Architecture decisions
+
+- [ADR 0001 — DuckDB and Athena dual adapter](docs/adr/0001-duckdb-and-athena-dual-adapter.md)
+- [ADR 0002 — Declarative Glue tables over crawlers](docs/adr/0002-declarative-glue-tables-over-crawlers.md)
+- [ADR 0003 — Partitioning strategy](docs/adr/0003-partitioning-strategy.md)
 
 ---
 
@@ -72,6 +93,20 @@ The quality contract runs **before** the write. A batch that violates it exits
 `3` and leaves nothing on disk — checking afterwards would leave a bad batch for
 a downstream reader to find first. Column definitions, dedup key and every
 contract are in [docs/DATA_DICTIONARY.md](docs/DATA_DICTIONARY.md).
+
+Then build the gold marts with dbt, on DuckDB, with no AWS account:
+
+```bash
+make dbt-build
+```
+
+```
+Finished running 1 seed, 4 table models, 50 data tests, 2 view models
+Completed successfully
+Done. PASS=57 WARN=0 ERROR=0 SKIP=0
+```
+
+Or run the whole pipeline in one step: `make pipeline`.
 
 Offline, or OpenSky rate-limiting you? Replay the committed fixtures instead:
 
