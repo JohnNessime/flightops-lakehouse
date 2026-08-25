@@ -5,10 +5,9 @@ telemetry from the [OpenSky Network](https://opensky-network.org/) public API �
 with a **fully local development and CI path**, so the entire transformation
 layer runs and is tested with zero AWS credentials.
 
-> **Status: Phase 4 of 6 — transformation.** Ingestion, the typed silver layer
-> and the full dbt transformation layer are in place and green on DuckDB.
-> Terraform and CI land in subsequent phases. This README is a skeleton and
-> will be rewritten in Phase 6.
+> **Status: Phase 5 of 6 — infrastructure.** Ingestion, silver, the dbt
+> transformation layer and the Terraform for the AWS side are all in place.
+> CI/CD lands in Phase 6, along with a rewrite of this README.
 
 ---
 
@@ -42,6 +41,28 @@ says so plainly rather than implying both engines were exercised.
 | `mart_altitude_band_distribution` | date · hour · band | How traffic distributes across altitude bands |
 | `mart_ground_activity_ratio` | date · hour · country | Airborne vs on-ground split, a proxy for airport activity |
 | `mart_carrier_activity` | date · hour · carrier | Callsign-prefix rollup joined to a seeded ICAO designator reference |
+
+### Infrastructure
+
+Four Terraform modules — S3 lake storage, a declarative Glue catalog, a
+cost-capped Athena workgroup, and a repo-scoped GitHub OIDC role. No VPC, no
+NAT Gateway, no always-on compute, and **no long-lived AWS keys anywhere**,
+which is what makes it safe for this repository to be public.
+
+`fmt`, `validate`, `tflint` and `checkov` all pass clean (51 passed, 0 failed,
+5 documented suppressions), and 26 tests assert the security properties that
+static analysis does not — no bare resource wildcards, a trust policy pinned
+with `StringEquals` to one repository at one ref, Athena scoped to the one
+workgroup carrying the cost ceiling.
+
+**It has not been applied to a real AWS account.** Static analysis proves the
+configuration says the right thing, not that AWS did the right thing. See
+[infra/README.md](infra/README.md), which says so rather than implying
+otherwise.
+
+```bash
+make tf
+```
 
 ### Architecture decisions
 

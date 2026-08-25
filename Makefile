@@ -96,7 +96,11 @@ tf-lint:  ## tflint over infra/
 > tflint --chdir=infra --recursive
 
 tf-checkov:  ## checkov static analysis over infra/
-> $(BIN)/checkov -d infra --quiet --compact
+# Invoked as a module: checkov ships without a .exe shim on Windows, so a
+# direct path fails when make falls back to cmd.exe.
+> $(PY) -m checkov.main -d infra --quiet --compact --framework terraform
+
+tf: tf-fmt tf-validate tf-lint tf-checkov  ## Full Terraform gate. Never touches AWS.
 
 security:  ## Secret scan the working tree and the full git history
 > gitleaks detect --source . --no-git -v
