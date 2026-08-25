@@ -1,0 +1,29 @@
+# gitleaks configuration for flightops-lakehouse.
+#
+# Extends the full upstream ruleset — nothing is disabled. The allowlist below
+# only suppresses paths that are already in .gitignore and therefore can never
+# reach the public remote: third-party vendored code and build caches. Scanning
+# them produces hundreds of false positives (botocore ships AWS API example
+# JSON full of token-shaped UUIDs), which is worse than useless — a noisy gate
+# is a gate people learn to ignore.
+#
+# No repository-authored path is allowlisted. No rule is disabled.
+
+title = "flightops-lakehouse"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Gitignored, non-publishable paths: virtualenvs, caches, vendored packages"
+paths = [
+  '''^\.venv/''',
+  '''^venv/''',
+  '''^\.git/''',
+  '''^\.mypy_cache/''',
+  '''^\.pytest_cache/''',
+  '''^\.ruff_cache/''',
+  '''^dbt/target/''',
+  '''^dbt/dbt_packages/''',
+  '''^infra/\.terraform/''',
+]
