@@ -41,6 +41,9 @@ data/
 # ---------------------------------------------------------------------------
 # Python
 # ---------------------------------------------------------------------------
+# Lambda deployment package: a build artefact, rebuilt by `make lambda-package`.
+build/
+
 __pycache__/
 *.py[cod]
 *.egg-info/

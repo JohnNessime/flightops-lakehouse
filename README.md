@@ -121,6 +121,14 @@ warnings are distinguished on principle: an aircraft with no position fix is
 *incomplete* and warns; one coordinate without the other is *corrupt* and fails.
 A check that fires on every real batch is a check nobody reads.
 
+**Scheduled ingestion that fails loudly.** EventBridge triggers a Step
+Functions state machine that invokes the ingest Lambda. The retry policy is
+declarative rather than buried in function code, and a failed run ends in an
+explicit `Fail` state — a schedule that swallows errors looks healthy while
+producing nothing. The schedule ships **disabled**, so applying the Terraform
+cannot silently start a recurring job.
+→ [orchestration/README.md](orchestration/README.md)
+
 **Provenance that cannot be faked.** Every bronze object records whether it came
 from a live fetch or a fixture replay, and that tag is carried into silver. CI
 runs on fixtures, and its data says so.
@@ -170,17 +178,18 @@ Every claim above is enforced by something that fails:
 | Layer | Tool |
 | --- | --- |
 | Ingestion | Python 3.11+, `requests` |
+| Orchestration | AWS Lambda, Step Functions, EventBridge |
 | Storage | Parquet (snappy), Hive partitioning, S3 |
 | Transformation | dbt — `dbt-duckdb` / `dbt-athena-community` |
 | Query engines | DuckDB (local), Amazon Athena (cloud) |
 | Catalog | AWS Glue, declarative tables + partition projection |
-| Infrastructure | Terraform, four modules |
+| Infrastructure | Terraform, five modules |
 | CI/CD | GitHub Actions, OIDC, SHA-pinned |
 | Quality gates | ruff · pytest · gitleaks · tflint · checkov · pip-audit |
 
-**196 tests, 97% coverage.** 6 dbt models, 50 dbt tests, 4 marts.
-`terraform fmt`, `validate`, `tflint` and `checkov` all clean — 51 passed,
-0 failed, 5 documented suppressions.
+**215 tests, 97% coverage.** 6 dbt models, 50 dbt tests, 4 marts.
+`terraform fmt`, `validate`, `tflint` and `checkov` all clean — 142 passed,
+0 failed, 18 documented suppressions.
 
 ---
 

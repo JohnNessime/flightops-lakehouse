@@ -105,6 +105,24 @@ pipeline: replay normalise dbt-build  ## Full offline pipeline from committed fi
 # fails on a fresh clone -- which is precisely how the omission was found.
 ci: lint test pipeline  ## Exactly what CI runs. No AWS credentials at any point.
 
+LAMBDA_BUILD := build/lambda_ingest
+
+lambda-package:  ## Build the Lambda deployment package (run before terraform plan)
+# Installs only what the ingest path actually imports, then copies the package
+# source. `pip install .` would pull pyarrow -- 84 MiB of it -- for a handler
+# that never touches Parquet: pyarrow belongs to normalise, which does not run
+# in Lambda. boto3 is likewise omitted because the runtime provides it, and
+# shipping a second copy would dwarf everything else in the zip.
+#
+# Built here rather than from Terraform because the contract forbids
+# local-exec: Terraform zips a directory, it does not run a build tool.
+> rm -rf $(LAMBDA_BUILD)
+> $(PY) -c "import pathlib; pathlib.Path('$(LAMBDA_BUILD)').mkdir(parents=True, exist_ok=True)"
+> $(PIP) install requests --target $(LAMBDA_BUILD) --quiet --no-compile
+> $(PY) -c "import shutil; shutil.copytree('src/flightops', '$(LAMBDA_BUILD)/flightops', dirs_exist_ok=True)"
+> cp orchestration/lambda_ingest/handler.py $(LAMBDA_BUILD)/
+> @$(PY) -c "import pathlib; d=pathlib.Path('$(LAMBDA_BUILD)'); b=sum(f.stat().st_size for f in d.rglob('*') if f.is_file()); n=sum(1 for f in d.rglob('*') if f.is_file()); print(f'  packaged {n} files, {b/1024/1024:.1f} MiB -> $(LAMBDA_BUILD)')"
+
 tf-fmt:  ## terraform fmt -check -recursive
 > terraform -chdir=infra fmt -check -recursive
 
@@ -135,5 +153,5 @@ gate: precommit check security  ## Full local suite — run before every push
 
 clean:  ## Remove build, cache and dbt artefacts
 > rm -rf .pytest_cache .ruff_cache .coverage htmlcov build dist *.egg-info
-> rm -rf dbt/target dbt/dbt_packages dbt/logs logs
+> rm -rf dbt/target dbt/dbt_packages dbt/logs logs build
 > find . -type d -name __pycache__ -prune -exec rm -rf {} +
