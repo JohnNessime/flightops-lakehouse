@@ -1,0 +1,60 @@
+# Pre-commit gate for a PUBLIC repository.
+#
+# The secret-scanning hooks are the point of this file: they are the last
+# automated check between the working tree and a permanent public git history.
+# Everything else (formatting, linting, Terraform static analysis) is hygiene.
+#
+# Revisions are pinned. Bump them deliberately with `pre-commit autoupdate`.
+---
+fail_fast: false
+
+repos:
+  # -------------------------------------------------------------------------
+  # Secret scanning — highest priority, runs on every commit.
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # -------------------------------------------------------------------------
+  # Python
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      - id: ruff-check
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  # -------------------------------------------------------------------------
+  # Terraform — fmt, validate, lint, and IaC security scanning.
+  # These hooks are no-ops until infra/*.tf exists (Phase 5).
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.109.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_tflint
+      - id: terraform_checkov
+        args:
+          - --args=--quiet
+          - --args=--compact
