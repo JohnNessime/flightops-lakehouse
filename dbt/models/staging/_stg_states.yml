@@ -1,0 +1,49 @@
+---
+version: 2
+
+models:
+  - name: stg_states
+    description: >
+      Silver state vectors, renamed and typed. No business logic and no
+      filtering: staging must not lose a row that a consumer might want.
+    columns:
+      - name: icao24
+        description: 24-bit ICAO transponder address, 6 lowercase hex digits.
+        data_tests:
+          - not_null
+      - name: origin_country
+        data_tests:
+          - not_null
+      - name: last_contact
+        data_tests:
+          - not_null
+      - name: observation_date
+        description: Partition date, cast to DATE on both adapters.
+        data_tests:
+          - not_null
+      - name: observation_hour
+        description: Partition hour, cast to INTEGER on both adapters.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                  # A cast that silently produced nulls or garbage would show up
+                  # here rather than as a wrong number in a mart.
+                  values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                           16, 17, 18, 19, 20, 21, 22, 23]
+                  quote: false
+      - name: on_ground
+        data_tests:
+          - not_null
+      - name: position_source_label
+        data_tests:
+          - accepted_values:
+              arguments:
+                  values: ['ADS-B', 'ASTERIX', 'MLAT', 'FLARM', 'UNKNOWN']
+      - name: ingest_source
+        description: Provenance carried from bronze. Never fabricated.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                  values: ['opensky-live', 'fixture-replay', 'unknown']

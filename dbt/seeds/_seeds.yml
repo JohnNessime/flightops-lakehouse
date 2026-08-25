@@ -1,0 +1,24 @@
+---
+version: 2
+
+seeds:
+  - name: carrier_codes
+    description: >
+      ICAO three-letter airline designators observed over the sampled region.
+      Deliberately not the full ICAO register: this is a demonstration of a
+      reference join, and a partial seed exercises the LEFT join's unmatched
+      path, which a complete one would hide.
+    config:
+      column_types:
+        carrier_code: varchar(3)
+    columns:
+      - name: carrier_code
+        data_tests:
+          - not_null
+          - unique
+      - name: carrier_name
+        data_tests:
+          - not_null
+      - name: carrier_country
+        data_tests:
+          - not_null

@@ -1,0 +1,34 @@
+---
+version: 2
+
+models:
+  - name: int_states_enriched
+    description: >
+      Staging plus the derived attributes shared by more than one mart:
+      altitude band, vertical phase, carrier code and position availability.
+    columns:
+      - name: icao24
+        data_tests:
+          - not_null
+      - name: altitude_band
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                  values: ['on_ground', 'unknown', 'below_1km', '1km_to_3km',
+                           '3km_to_6km', '6km_to_9km', '9km_to_12km', 'above_12km']
+      - name: vertical_phase
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                  values: ['on_ground', 'unknown', 'climbing', 'descending', 'level']
+      - name: has_position
+        data_tests:
+          - not_null
+      - name: carrier_code
+        description: >
+          ICAO airline designator, or null where the callsign is absent or not
+          three letters. Nullable by design: general aviation flies under
+          registration-style callsigns and folding those in would invent
+          operators that do not exist.

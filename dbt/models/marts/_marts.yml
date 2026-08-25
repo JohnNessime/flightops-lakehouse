@@ -1,0 +1,108 @@
+---
+version: 2
+
+models:
+  # ------------------------------------------------------------------------
+  - name: mart_country_hourly_activity
+    description: >
+      Distinct aircraft per origin country per hour. Counts aircraft rather
+      than rows, because a row is one observation and the same aircraft
+      appears in every snapshot it is airborne for -- counting rows would
+      measure polling frequency, not traffic.
+    columns:
+      - name: activity_key
+        description: "Grain: one row per (date, hour, origin_country)."
+        data_tests:
+          - not_null
+          - unique
+      - name: origin_country
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                  to: ref('stg_states')
+                  field: origin_country
+      - name: aircraft_count
+        data_tests:
+          - not_null
+      - name: observation_hour
+        data_tests:
+          - not_null
+
+  # ------------------------------------------------------------------------
+  - name: mart_altitude_band_distribution
+    description: >
+      Distribution of observations across altitude bands per hour. Shares are
+      computed against the hour's own total, so each hour sums to 1 and hours
+      stay comparable when traffic volume differs.
+    columns:
+      - name: band_key
+        description: "Grain: one row per (date, hour, altitude_band)."
+        data_tests:
+          - not_null
+          - unique
+      - name: altitude_band
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                  values: ['on_ground', 'unknown', 'below_1km', '1km_to_3km',
+                           '3km_to_6km', '6km_to_9km', '9km_to_12km', 'above_12km']
+          - relationships:
+              arguments:
+                  to: ref('int_states_enriched')
+                  field: altitude_band
+      - name: share_of_hour
+        data_tests:
+          - not_null
+
+  # ------------------------------------------------------------------------
+  - name: mart_ground_activity_ratio
+    description: >
+      Airborne versus on-ground split per country per hour. A high ground
+      ratio in a bounded region is the cheapest available proxy for airport
+      activity without an airports reference dataset.
+    columns:
+      - name: ratio_key
+        description: "Grain: one row per (date, hour, origin_country)."
+        data_tests:
+          - not_null
+          - unique
+      - name: on_ground_ratio
+        data_tests:
+          - not_null
+      - name: origin_country
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                  to: ref('stg_states')
+                  field: origin_country
+
+  # ------------------------------------------------------------------------
+  - name: mart_carrier_activity
+    description: >
+      Callsign-prefix rollup to operator, left-joined to the seeded ICAO
+      designator reference. The join is deliberately a LEFT join: the seed
+      covers operators observed over the sampled region, not the full ICAO
+      register, and dropping unrecognised codes would understate traffic.
+    columns:
+      - name: carrier_key
+        description: "Grain: one row per (date, hour, carrier_code)."
+        data_tests:
+          - not_null
+          - unique
+      - name: carrier_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                  to: ref('int_states_enriched')
+                  field: carrier_code
+      - name: carrier_name
+        description: Seeded operator name, or 'Unknown operator' when unseeded.
+        data_tests:
+          - not_null
+      - name: aircraft_count
+        data_tests:
+          - not_null

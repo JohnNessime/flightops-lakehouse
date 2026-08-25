@@ -1,0 +1,57 @@
+---
+# EXAMPLE PROFILE -- placeholders only. Never put a real value in this file.
+#
+# Copy to profiles.yml (which is gitignored) or point DBT_PROFILES_DIR at a
+# directory containing your own copy:
+#
+#     cp dbt/profiles.example.yml dbt/profiles.yml
+#
+# The `duckdb` target works as-is with no edits and no credentials -- that is
+# deliberate, and it is what CI and the five-minute quickstart both use.
+#
+# The `athena` target is credential-free by construction: every value comes
+# from an environment variable, and authentication happens through the AWS
+# credential chain (GitHub OIDC in CI, SSO or a named profile locally). There
+# is no place in this file to put a key, which is the point.
+
+# Paths below are relative to the REPOSITORY ROOT, not to this file: dbt
+# resolves relative paths against the process working directory, and every
+# documented invocation runs from the root via --project-dir dbt.
+
+flightops:
+  target: duckdb
+
+  outputs:
+    # -----------------------------------------------------------------------
+    # Local and CI. No AWS account, no credentials, no spend.
+    # -----------------------------------------------------------------------
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('FLIGHTOPS_DUCKDB_PATH', 'data/flightops.duckdb') }}"
+      schema: main
+      threads: 4
+      # Reads Hive-partitioned Parquet straight off the local filesystem.
+      extensions:
+        - parquet
+
+    # -----------------------------------------------------------------------
+    # AWS. Same models, different engine.
+    # -----------------------------------------------------------------------
+    athena:
+      type: athena
+      # Every value below comes from the environment. There is deliberately
+      # nowhere in this file for a real bucket, account id or key to sit.
+      s3_staging_dir: "{{ env_var('FLIGHTOPS_ATHENA_STAGING_DIR', 's3://EXAMPLE-BUCKET/athena-results/') }}"
+      s3_data_dir: "{{ env_var('FLIGHTOPS_ATHENA_DATA_DIR', 's3://EXAMPLE-BUCKET/gold/') }}"
+      region_name: "{{ env_var('AWS_REGION', 'eu-west-1') }}"
+      database: awsdatacatalog
+      schema: "{{ env_var('FLIGHTOPS_GLUE_DATABASE', 'flightops') }}"
+      work_group: "{{ env_var('FLIGHTOPS_ATHENA_WORKGROUP', 'flightops') }}"
+      threads: 4
+      # Parquet everywhere, so the storage format does not become another
+      # difference between the two targets.
+      table_type: hive
+      format: parquet
+      write_compression: snappy
+      # Authentication comes from the AWS credential chain. Never from here.
+      aws_profile_name: "{{ env_var('AWS_PROFILE', '') }}"

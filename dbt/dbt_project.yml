@@ -1,0 +1,40 @@
+---
+# One model codebase, two adapters. See docs/adr/0001-duckdb-and-athena-dual-adapter.md
+#
+# Nothing in this file is adapter-specific. Everything that differs between
+# DuckDB and Athena is confined to profiles.yml and to the source definition in
+# models/staging/_sources.yml -- which is the whole point of the exercise.
+
+name: flightops
+version: "0.1.0"
+config-version: 2
+
+profile: flightops
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Callsign prefix length used to roll flights up to an operator. Three
+  # characters is the ICAO airline designator; anything shorter collides
+  # heavily across unrelated operators.
+  carrier_prefix_length: 3
+
+models:
+  flightops:
+    +materialized: view
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      # Marts are tables in both adapters: they are read repeatedly and are
+      # small, so materialising them trades negligible storage for not
+      # re-scanning silver on every query. On Athena that is a direct saving
+      # in bytes scanned, which is the only thing Athena bills for.
+      +materialized: table

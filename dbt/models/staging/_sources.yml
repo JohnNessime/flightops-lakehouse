@@ -1,0 +1,41 @@
+---
+# The single adapter-dependent file in the project.
+#
+# DuckDB honours `meta.external_location` and reads the Parquet directly off
+# disk. Athena ignores it entirely and resolves the source through the Glue
+# catalog by database/schema/table name. So one declaration serves both engines
+# without a single `{% if target.type %}` anywhere in the model code.
+#
+# See docs/adr/0001-duckdb-and-athena-dual-adapter.md
+
+version: 2
+
+sources:
+  - name: flightops_silver
+    description: >
+      Typed, deduplicated aircraft state vectors produced by the Python
+      normalisation layer. One row per distinct observation.
+    schema: "{{ env_var('FLIGHTOPS_GLUE_DATABASE', 'flightops') }}"
+
+    tables:
+      - name: states
+        description: Silver-layer state vectors, partitioned by dt and hour.
+        meta:
+          # DuckDB only. hive_partitioning recovers dt and hour from the
+          # directory names -- without it both columns simply vanish, because
+          # they are deliberately not stored inside the Parquet files.
+          external_location: >-
+            read_parquet('{{ env_var("FLIGHTOPS_SILVER_GLOB",
+            "data/silver/**/*.parquet") }}', hive_partitioning = true)
+
+        columns:
+          - name: icao24
+            description: 24-bit ICAO transponder address, 6 lowercase hex digits.
+            data_tests:
+              - not_null
+          - name: origin_country
+            data_tests:
+              - not_null
+          - name: last_contact
+            data_tests:
+              - not_null
