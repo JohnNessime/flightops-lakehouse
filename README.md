@@ -5,9 +5,10 @@ telemetry from the [OpenSky Network](https://opensky-network.org/) public API �
 with a **fully local development and CI path**, so the entire transformation
 layer runs and is tested with zero AWS credentials.
 
-> **Status: Phase 1 of 6 — foundation.** Scaffold, security contract and
-> tooling are in place. Ingestion, normalisation, dbt, Terraform and CI land in
-> subsequent phases. This README is a skeleton and will be rewritten in Phase 6.
+> **Status: Phase 2 of 6 — ingestion.** Scaffold, security contract, tooling and
+> the bronze ingestion path are in place. Normalisation, dbt, Terraform and CI
+> land in subsequent phases. This README is a skeleton and will be rewritten in
+> Phase 6.
 
 ---
 
@@ -31,14 +32,59 @@ codebase, two profile targets. See `docs/adr/0001-duckdb-and-athena-dual-adapter
 
 ## Run it locally in 5 minutes
 
-> Not yet wired up — arrives with Phase 2–4. The intended flow:
+No AWS account, no credentials, no cloud spend.
 
 ```bash
 make install
 make check
 ```
 
-No AWS account, no credentials, no cloud spend.
+That installs the package with its local + dev extras, runs `ruff`, and runs the
+full test suite offline — the suite severs outbound sockets, so a test that
+reaches the network fails rather than passing quietly on your machine.
+
+To pull a live snapshot into the bronze layer:
+
+```bash
+.venv/bin/flightops ingest
+```
+
+Which lands a Hive-partitioned object and tells you exactly what it did:
+
+```
+INFO flightops.ingest fetched live snapshot [attempt=1 bytes=17998 states=140]
+INFO flightops.ingest wrote bronze snapshot [path=data/bronze/dt=2026-08-25/hour=09/states_1787651200.json source=opensky-live states=140]
+```
+
+Offline, or OpenSky rate-limiting you? Replay the committed fixtures instead:
+
+```bash
+.venv/bin/flightops ingest --allow-fixture-fallback
+```
+
+The fallback is **opt-in**. A pipeline that silently substitutes demonstration
+data for a failed fetch looks healthy while producing fiction, so the resulting
+object is tagged `fixture-replay` rather than `opensky-live` and downstream
+layers can always tell the difference.
+
+### Configuration
+
+Everything is environment-driven, with defaults that work on a clean checkout.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FLIGHTOPS_OPENSKY_BASE_URL` | `https://opensky-network.org/api` | API root |
+| `FLIGHTOPS_DATA_ROOT` | `data` | local lake root |
+| `FLIGHTOPS_BRONZE_PREFIX` | `bronze` | bronze prefix under the root |
+| `FLIGHTOPS_BBOX_{LAMIN,LOMIN,LAMAX,LOMAX}` | unset | geographic filter; all four or none |
+| `FLIGHTOPS_HTTP_TIMEOUT` | `30` | per-request timeout, seconds |
+| `FLIGHTOPS_MAX_RETRIES` | `4` | retries on 429/5xx |
+| `FLIGHTOPS_BACKOFF_BASE` / `_MAX` | `2` / `60` | exponential backoff bounds, seconds |
+| `FLIGHTOPS_ALLOW_FIXTURE_FALLBACK` | `0` | permit fixture replay on failure |
+
+Access is **anonymous by design**. OpenSky's OAuth2 client secret is exactly the
+class of value this repository must never hold, so the ingest path is built to
+need no credential at all.
 
 ---
 
