@@ -42,7 +42,19 @@ dev = [
   "pyyaml>=6.0",
   "ruff>=0.6",
   "pre-commit>=3.8",
-  "checkov>=3.2",
+  "pip-audit>=2.7",
+]
+# Infrastructure static analysis, kept out of [dev] deliberately.
+#
+# checkov is a lint tool, not a dependency of this project: it never ships, and
+# it only ever reads this repository's own Terraform. It also pins a long tail
+# of transitive packages (asteval==1.0.6, ecdsa) that carry open CVEs with no
+# upgrade path, because the pins are exact and the latest checkov still holds
+# them. Auditing the runtime environment should report on what this project
+# actually depends on, so the lint tool lives in its own extra and CI installs
+# it standalone in the job that needs it.
+iac = [
+  "checkov>=3.3,<4",
 ]
 
 [project.scripts]

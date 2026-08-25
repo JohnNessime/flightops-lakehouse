@@ -31,6 +31,11 @@ venv:  ## Create the local virtualenv
 > $(PY) -m pip install --upgrade pip
 
 install: venv  ## Install the package with local + dev extras (no AWS)
+# Exactly what CI installs, so a local audit and a CI audit see the same
+# set. checkov lives in the [iac] extra and is deliberately absent: it is a
+# lint tool, not a dependency, and it pins transitive packages with open
+# CVEs and no upgrade path. tf-checkov runs it from pre-commit's own pinned,
+# isolated environment instead.
 > $(PIP) install -e ".[local,dev]"
 
 hooks:  ## Install the pre-commit git hooks
@@ -96,11 +101,16 @@ tf-lint:  ## tflint over infra/
 > tflint --chdir=infra --recursive
 
 tf-checkov:  ## checkov static analysis over infra/
-# Invoked as a module: checkov ships without a .exe shim on Windows, so a
-# direct path fails when make falls back to cmd.exe.
-> $(PY) -m checkov.main -d infra --quiet --compact --framework terraform
+# Runs through pre-commit, which installs and pins its own checkov in an
+# isolated environment. That keeps the lint tool out of the project venv --
+# so `make audit` and CI audit the same dependency set -- and means the hook
+# and this target can never drift to different checkov versions.
+> $(BIN)/pre-commit run checkov --all-files
 
 tf: tf-fmt tf-validate tf-lint tf-checkov  ## Full Terraform gate. Never touches AWS.
+
+audit:  ## Audit installed dependencies for known CVEs
+> $(BIN)/pip-audit --skip-editable --progress-spinner=off
 
 security:  ## Secret scan the working tree and the full git history
 > gitleaks detect --source . --no-git -v

@@ -104,16 +104,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install the project and pip-audit
+      - name: Install the project
+        # [local,dev] only -- the same set the Makefile installs, so a local
+        # audit and this one see identical packages. The [iac] extra (checkov)
+        # is excluded on purpose: it is a lint tool rather than a dependency,
+        # and it pins transitive packages carrying open CVEs with no upgrade
+        # path, since the pins are exact and the latest checkov still holds
+        # them. Auditing it here would report on the linter, not the project.
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[local,dev]"
-          python -m pip install pip-audit
 
       - name: Audit installed dependencies
-        # Audits what is actually installed, transitive packages included --
-        # not just what pyproject declares, which is where the CVEs usually are.
-        run: pip-audit --strict --progress-spinner=off
+        # --skip-editable skips this project itself, which is not on PyPI.
+        # --strict is deliberately NOT used: it escalates any skip to an error,
+        # which would fail on that same unavoidable skip. Actual vulnerabilities
+        # still fail the run.
+        run: pip-audit --skip-editable --progress-spinner=off
 
   # -------------------------------------------------------------------------
   workflows:
