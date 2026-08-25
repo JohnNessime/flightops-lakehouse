@@ -53,6 +53,38 @@ precommit:  ## Run every pre-commit hook against every file
 
 check: lint test  ## Fast local gate: lint + tests
 
+# ---------------------------------------------------------------------------
+# Pipeline. Everything below runs on DuckDB with no AWS credentials.
+# ---------------------------------------------------------------------------
+
+# dbt takes --project-dir / --profiles-dir AFTER the subcommand, not before.
+DBT := $(BIN)/dbt
+DBT_DIRS := --project-dir dbt --profiles-dir dbt
+
+dbt/profiles.yml:
+> cp dbt/profiles.example.yml dbt/profiles.yml
+> @echo "created dbt/profiles.yml from the example (gitignored; duckdb target needs no edits)"
+
+ingest:  ## Fetch one live snapshot into bronze
+> $(BIN)/flightops ingest
+
+normalise:  ## Bronze -> typed silver Parquet, gated on the quality contract
+> $(BIN)/flightops normalise
+
+dbt-build: dbt/profiles.yml  ## Seed, run and test every dbt model on DuckDB
+> $(DBT) build $(DBT_DIRS)
+
+dbt-test: dbt/profiles.yml  ## Run dbt tests only
+> $(DBT) test $(DBT_DIRS)
+
+dbt-docs: dbt/profiles.yml  ## Generate and serve the dbt docs site
+> $(DBT) docs generate $(DBT_DIRS)
+> $(DBT) docs serve $(DBT_DIRS)
+
+pipeline: normalise dbt-build  ## Full local pipeline over whatever is in bronze
+
+ci: lint test dbt-build  ## What CI runs. No AWS credentials at any point.
+
 tf-fmt:  ## terraform fmt -check -recursive
 > terraform -chdir=infra fmt -check -recursive
 
@@ -74,5 +106,5 @@ gate: precommit check security  ## Full local suite — run before every push
 
 clean:  ## Remove build, cache and dbt artefacts
 > rm -rf .pytest_cache .ruff_cache .coverage htmlcov build dist *.egg-info
-> rm -rf dbt/target dbt/dbt_packages dbt/logs
+> rm -rf dbt/target dbt/dbt_packages dbt/logs logs
 > find . -type d -name __pycache__ -prune -exec rm -rf {} +
