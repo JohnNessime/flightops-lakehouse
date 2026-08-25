@@ -1,0 +1,14 @@
+# Normalise everything to LF in the repository. Windows checkouts still get
+# CRLF in the working tree where the platform expects it.
+* text=auto eol=lf
+
+# Binary / fixture formats must never be line-ending mangled.
+*.parquet binary
+*.duckdb  binary
+*.png     binary
+*.jpg     binary
+*.ico     binary
+*.zip     binary
+
+# Keep diffs readable for generated lock-style files.
+*.lock    -diff

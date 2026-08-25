@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------------------
+# Secrets and credentials — nothing here may ever reach a public remote.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+credentials
+.aws/
+
+# ---------------------------------------------------------------------------
+# Terraform — state can contain plaintext account IDs, ARNs and resource names.
+# ---------------------------------------------------------------------------
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# ---------------------------------------------------------------------------
+# Lake data — bronze/silver/gold artefacts stay local, always.
+# ---------------------------------------------------------------------------
+data/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.csv
+!tests/fixtures/*.csv
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ---------------------------------------------------------------------------
+# dbt
+# ---------------------------------------------------------------------------
+target/
+dbt_packages/
+logs/
+dbt/profiles.yml
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
