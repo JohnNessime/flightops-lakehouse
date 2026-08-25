@@ -1,0 +1,41 @@
+{
+  "Comment": "Scheduled bronze ingestion. Retries are declared here rather than buried in the function so the policy is visible in the console and changeable without a redeploy.",
+  "StartAt": "Ingest",
+  "States": {
+    "Ingest": {
+      "Type": "Task",
+      "Resource": "${lambda_arn}",
+      "Comment": "One OpenSky snapshot into the bronze prefix.",
+      "TimeoutSeconds": 120,
+      "Retry": [
+        {
+          "Comment": "Rate limiting and transient upstream failure. The function already backs off within an invocation; this covers the case where the whole window was unavailable.",
+          "ErrorEquals": ["HandlerError", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0,
+          "MaxDelaySeconds": 300,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "IngestFailed"
+        }
+      ],
+      "Next": "IngestSucceeded"
+    },
+    "IngestSucceeded": {
+      "Type": "Succeed",
+      "Comment": "The task result carries bucket, key, state count and provenance, so a successful execution is self-describing in the console."
+    },
+    "IngestFailed": {
+      "Type": "Fail",
+      "Comment": "Fails loudly. A schedule that silently swallows errors looks healthy while producing nothing, which is worse than a visible red execution.",
+      "Error": "IngestionFailed",
+      "Cause": "Bronze ingestion did not complete after retries; see the execution history for the underlying error."
+    }
+  }
+}
