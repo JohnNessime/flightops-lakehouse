@@ -5,8 +5,8 @@ telemetry from the [OpenSky Network](https://opensky-network.org/) public API �
 with a **fully local development and CI path**, so the entire transformation
 layer runs and is tested with zero AWS credentials.
 
-> **Status: Phase 2 of 6 — ingestion.** Scaffold, security contract, tooling and
-> the bronze ingestion path are in place. Normalisation, dbt, Terraform and CI
+> **Status: Phase 3 of 6 — normalisation.** Scaffold, security contract, tooling,
+> bronze ingestion and the typed silver layer are in place. dbt, Terraform and CI
 > land in subsequent phases. This README is a skeleton and will be rewritten in
 > Phase 6.
 
@@ -56,6 +56,23 @@ INFO flightops.ingest fetched live snapshot [attempt=1 bytes=17998 states=140]
 INFO flightops.ingest wrote bronze snapshot [path=data/bronze/dt=2026-08-25/hour=09/states_1787651200.json source=opensky-live states=140]
 ```
 
+Then turn the raw snapshots into typed, deduplicated silver Parquet:
+
+```bash
+.venv/bin/flightops normalise
+```
+
+```
+INFO  flightops.normalise normalised bronze objects [duplicates_removed=16 files=2 rows_in=282 rows_out=266]
+INFO  flightops.quality   quality check complete [result=266 rows, 0 violation(s), 2 warning(s)]
+INFO  flightops.normalise wrote silver partition [path=data/silver/dt=2026-08-25/hour=09/states.parquet rows=266]
+```
+
+The quality contract runs **before** the write. A batch that violates it exits
+`3` and leaves nothing on disk — checking afterwards would leave a bad batch for
+a downstream reader to find first. Column definitions, dedup key and every
+contract are in [docs/DATA_DICTIONARY.md](docs/DATA_DICTIONARY.md).
+
 Offline, or OpenSky rate-limiting you? Replay the committed fixtures instead:
 
 ```bash
@@ -76,6 +93,7 @@ Everything is environment-driven, with defaults that work on a clean checkout.
 | `FLIGHTOPS_OPENSKY_BASE_URL` | `https://opensky-network.org/api` | API root |
 | `FLIGHTOPS_DATA_ROOT` | `data` | local lake root |
 | `FLIGHTOPS_BRONZE_PREFIX` | `bronze` | bronze prefix under the root |
+| `FLIGHTOPS_SILVER_PREFIX` | `silver` | silver prefix under the root |
 | `FLIGHTOPS_BBOX_{LAMIN,LOMIN,LAMAX,LOMAX}` | unset | geographic filter; all four or none |
 | `FLIGHTOPS_HTTP_TIMEOUT` | `30` | per-request timeout, seconds |
 | `FLIGHTOPS_MAX_RETRIES` | `4` | retries on 429/5xx |
