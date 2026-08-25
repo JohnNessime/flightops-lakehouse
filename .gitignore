@@ -34,7 +34,9 @@ data/
 *.duckdb.wal
 *.parquet
 *.csv
+# Committed inputs, not lake data: fixtures and dbt seeds are source code.
 !tests/fixtures/*.csv
+!dbt/seeds/*.csv
 
 # ---------------------------------------------------------------------------
 # Python
@@ -61,6 +63,8 @@ target/
 dbt_packages/
 logs/
 dbt/profiles.yml
+# Machine-local dbt state: an anonymous install id, not source.
+dbt/.user.yml
 
 # ---------------------------------------------------------------------------
 # Editors and OS
