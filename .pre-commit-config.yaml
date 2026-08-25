@@ -54,7 +54,30 @@ repos:
       - id: terraform_fmt
       - id: terraform_validate
       - id: terraform_tflint
-      - id: terraform_checkov
+
+  # ---------------------------------------------------------------------------
+  # IaC static analysis.
+  #
+  # Deliberately a local hook rather than pre-commit-terraform's terraform_checkov:
+  # that one invokes `checkov` from PATH, which is present only when the project
+  # venv is activated, so `git commit` from a plain shell fails with a bare
+  # "command not found". pre-commit installs and pins this one itself, so the
+  # gate works on a fresh clone with nothing set up.
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: checkov
+        name: Checkov
+        description: Static analysis of the Terraform configuration.
+        entry: checkov
+        language: python
+        additional_dependencies: ["checkov==3.3.13"]
+        files: \.tf$
+        pass_filenames: false
         args:
-          - --args=--quiet
-          - --args=--compact
+          - "-d"
+          - "infra"
+          - "--quiet"
+          - "--compact"
+          - "--framework"
+          - "terraform"
