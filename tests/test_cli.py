@@ -181,8 +181,10 @@ def test_normalise_writes_silver_and_returns_zero(cli_env: Path) -> None:
     assert main(["normalise"]) == 0
 
     written = sorted((cli_env / "silver").rglob("*.parquet"))
-    assert len(written) == 1
-    assert written[0].parent.name.startswith("hour=")
+    assert written, "silver must be produced"
+    for path in written:
+        assert path.parent.name.startswith("hour=")
+        assert path.parent.parent.name.startswith("dt=")
 
 
 def test_normalise_with_no_bronze_returns_one(cli_env: Path) -> None:
@@ -195,8 +197,14 @@ def test_normalise_deduplicates_the_overlapping_fixtures(cli_env: Path) -> None:
     _seed_bronze(cli_env)
     main(["normalise"])
 
-    table = pq.read_table(next((cli_env / "silver").rglob("*.parquet")))
-    assert table.num_rows < 440, "the three fixtures overlap and must collapse"
+    import json as _json
+
+    expected_rows_in = sum(
+        len(_json.loads(f.read_text(encoding="utf-8"))["states"])
+        for f in FIXTURE_DIR.glob("states_*.json")
+    )
+    total = sum(pq.read_table(p).num_rows for p in (cli_env / "silver").rglob("*.parquet"))
+    assert total < expected_rows_in, "overlapping fixtures must collapse"
 
 
 def test_quality_failure_returns_three_and_writes_nothing(

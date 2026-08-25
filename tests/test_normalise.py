@@ -271,14 +271,23 @@ def _bronze_from_fixtures(settings: Settings, tmp_path: Path) -> list[Path]:
 def test_normalise_deduplicates_real_overlapping_snapshots(
     settings: Settings, tmp_path: Path
 ) -> None:
-    """The three committed fixtures overlap heavily by design, so this asserts
-    on real duplicate resolution rather than a contrived case."""
+    """The committed fixtures overlap heavily by design, so this asserts on
+    real duplicate resolution rather than a contrived case.
+
+    Counts are derived from the fixtures rather than hardcoded: capturing more
+    snapshots is a normal thing to do, and a test that has to be edited every
+    time is a test that gets edited without being read.
+    """
+    fixtures = sorted(settings.fixture_dir.glob("states_*.json"))
+    expected_rows_in = sum(
+        len(json.loads(f.read_text(encoding="utf-8"))["states"]) for f in fixtures
+    )
     paths = _bronze_from_fixtures(settings, tmp_path)
 
     result = normalise(paths)
 
-    assert result.files_read == 3
-    assert result.rows_in == 440, "146 + 145 + 149 aircraft across the three fixtures"
+    assert result.files_read == len(fixtures)
+    assert result.rows_in == expected_rows_in
     assert result.rows_out < result.rows_in, "overlapping snapshots must collapse"
     assert result.duplicates_removed == result.rows_in - result.rows_out
 
@@ -290,9 +299,10 @@ def test_normalised_table_matches_the_silver_schema(settings: Settings, tmp_path
 
 
 def test_find_bronze_objects_walks_partitions(settings: Settings, tmp_path: Path) -> None:
+    expected = len(list(settings.fixture_dir.glob("states_*.json")))
     _bronze_from_fixtures(settings, tmp_path)
 
-    assert len(find_bronze_objects(settings)) == 3
+    assert len(find_bronze_objects(settings)) == expected
 
 
 # --------------------------------------------------------------------------
@@ -305,11 +315,20 @@ def test_write_silver_creates_hive_partitions(settings: Settings, tmp_path: Path
 
     written = write_silver(result.table, settings)
 
-    assert len(written) == 1
-    parts = written[0].relative_to(settings.silver_root).parts
-    assert parts[0].startswith("dt=")
-    assert parts[1].startswith("hour=")
-    assert parts[2] == "states.parquet"
+    expected_partitions = len(
+        {
+            (d, h)
+            for d, h in zip(
+                result.table["dt"].to_pylist(), result.table["hour"].to_pylist(), strict=True
+            )
+        }
+    )
+    assert len(written) == expected_partitions
+    for path in written:
+        parts = path.relative_to(settings.silver_root).parts
+        assert parts[0].startswith("dt=")
+        assert parts[1].startswith("hour=")
+        assert parts[2] == "states.parquet"
 
 
 def test_partition_columns_are_not_duplicated_inside_the_file(
@@ -331,9 +350,10 @@ def test_written_parquet_round_trips(settings: Settings, tmp_path: Path) -> None
 
     written = write_silver(result.table, settings)
 
-    stored = pq.read_table(written[0])
-    assert stored.num_rows == result.rows_out
-    assert stored.column("icao24").null_count == 0
+    total = sum(pq.read_table(path).num_rows for path in written)
+    assert total == result.rows_out, "every row must survive the partitioned write"
+    for path in written:
+        assert pq.read_table(path).column("icao24").null_count == 0
 
 
 def test_separate_hours_land_in_separate_partitions(settings: Settings, tmp_path: Path) -> None:
