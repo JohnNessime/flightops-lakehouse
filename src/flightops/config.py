@@ -105,6 +105,7 @@ class Settings:
     bbox: BoundingBox | None
     data_root: Path
     bronze_prefix: str
+    silver_prefix: str
     fixture_dir: Path
     timeout_seconds: float
     max_retries: int
@@ -119,6 +120,10 @@ class Settings:
     @property
     def bronze_root(self) -> Path:
         return self.data_root / self.bronze_prefix
+
+    @property
+    def silver_root(self) -> Path:
+        return self.data_root / self.silver_prefix
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -135,6 +140,7 @@ class Settings:
             bbox=bbox,
             data_root=Path(_env("DATA_ROOT", "data")).expanduser(),
             bronze_prefix=_env("BRONZE_PREFIX", "bronze"),
+            silver_prefix=_env("SILVER_PREFIX", "silver"),
             fixture_dir=Path(_env("FIXTURE_DIR", "tests/fixtures")).expanduser(),
             timeout_seconds=_env_float("HTTP_TIMEOUT", 30.0),
             max_retries=_env_int("MAX_RETRIES", 4),

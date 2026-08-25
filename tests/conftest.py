@@ -52,6 +52,7 @@ def settings(tmp_path: Path) -> Settings:
         bbox=BoundingBox(lamin=45.0, lomin=5.0, lamax=48.0, lomax=11.0),
         data_root=tmp_path / "data",
         bronze_prefix="bronze",
+        silver_prefix="silver",
         fixture_dir=FIXTURE_DIR,
         timeout_seconds=5.0,
         max_retries=2,
