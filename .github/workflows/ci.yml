@@ -1,0 +1,181 @@
+---
+# Continuous integration.
+#
+# The defining property of this workflow: it never authenticates to AWS and
+# never provisions anything. The entire transformation layer -- ingestion,
+# normalisation, quality contracts and every dbt model and test -- runs against
+# DuckDB over committed fixtures. There are no repository secrets, no OIDC
+# assume-role step, and nothing here can incur a cent of spend.
+#
+# Every third-party action is pinned to a full commit SHA rather than a tag.
+# A tag is a movable pointer: `@v4` today and `@v4` next month can be different
+# code, and an attacker who compromises an action's repository can retag
+# without anyone's workflow file changing. The tag is kept in a trailing
+# comment so the pin is still readable and updatable by a human.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only by default. Nothing in CI needs to write to the repository, and a
+# workflow that cannot write cannot be turned into one that does by a change to
+# a job it triggers.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # -------------------------------------------------------------------------
+  python:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        # [local,dev] only. The [aws] extra is deliberately excluded so CI
+        # cannot acquire an AWS SDK, let alone use one.
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[local,dev]"
+
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Tests
+        # The suite severs outbound sockets in conftest, so a test that reaches
+        # the network fails here rather than passing on someone's laptop.
+        run: python -m pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: coverage.xml
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  dbt:
+    name: dbt build on DuckDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[local,dev]"
+
+      - name: Build the lake from committed fixtures
+        # --from-fixtures makes no request at all. A live fetch with a fallback
+        # would still call the API, still be rate limited, and still fail for
+        # reasons unrelated to the code under test.
+        run: |
+          flightops ingest --from-fixtures
+          flightops normalise
+
+      - name: dbt build
+        run: |
+          cp dbt/profiles.example.yml dbt/profiles.yml
+          dbt build --project-dir dbt --profiles-dir dbt
+
+      - name: Upload dbt artefacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dbt-target
+          path: dbt/target/
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  terraform:
+    name: Terraform checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up tflint
+        uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
+
+      - name: terraform fmt
+        run: terraform -chdir=infra fmt -check -recursive -diff
+
+      - name: terraform init
+        # -backend=false: no state, no credentials, no remote backend.
+        run: terraform -chdir=infra init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform -chdir=infra validate
+
+      - name: tflint
+        run: tflint --chdir=infra --recursive
+
+      - name: checkov
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "checkov==3.3.13"
+          checkov -d infra --quiet --compact --framework terraform
+
+  # -------------------------------------------------------------------------
+  # A single required status check, so branch protection needs one entry
+  # rather than a list that silently goes stale when a job is added.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [python, dbt, terraform]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify every job succeeded
+        run: |
+          echo "python:    ${{ needs.python.result }}"
+          echo "dbt:       ${{ needs.dbt.result }}"
+          echo "terraform: ${{ needs.terraform.result }}"
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::at least one job did not succeed"
+            exit 1
+          fi

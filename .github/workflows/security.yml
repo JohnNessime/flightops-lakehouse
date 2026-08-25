@@ -1,0 +1,143 @@
+---
+# Scheduled security scanning.
+#
+# Separate from CI on purpose. CI answers "did this change break anything";
+# this answers "did the world change under us". A dependency with a CVE
+# published last Tuesday breaks nothing and fails no test -- it only shows up
+# if something goes looking on a schedule.
+#
+# Same rules as CI: no AWS credentials, no secrets, every action SHA-pinned.
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 06:00 UTC every Monday. A weekday morning, so a finding is seen the day
+    # it appears rather than sitting over a weekend.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Depth 0 is the point: a secret committed and then "removed" is
+          # still in history and still compromised. Scanning only the tip
+          # would report clean on exactly the case that matters.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan the working tree
+        run: gitleaks detect --source . --no-git --redact --verbose
+
+      - name: Scan the full history
+        run: gitleaks detect --source . --redact --verbose
+
+      - name: Check for AWS account IDs
+        # gitleaks does not flag a bare 12-digit number, and an AWS account ID
+        # is exactly that. Tracked files only, so the check is about what is
+        # published rather than what happens to be on the runner.
+        run: |
+          set -uo pipefail
+          matches=$(git grep -InE '\b[0-9]{12}\b' -- . ':!CLAUDE.md' || true)
+          if [ -n "$matches" ]; then
+            echo "::error::12-digit strings found in tracked files"
+            echo "$matches"
+            exit 1
+          fi
+          echo "No 12-digit strings outside the documented placeholders."
+
+      - name: Check commit authorship
+        # Every commit must carry the GitHub noreply address. A real address in
+        # a public history is permanent and cannot be rewritten away once
+        # anyone has cloned.
+        run: |
+          set -uo pipefail
+          authors=$(git log --all --format='%ae' | sort -u)
+          echo "Authors in history:"
+          echo "$authors"
+          if echo "$authors" | grep -vq 'users\.noreply\.github\.com'; then
+            echo "::error::a non-noreply email address is present in commit history"
+            exit 1
+          fi
+
+  # -------------------------------------------------------------------------
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the project and pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[local,dev]"
+          python -m pip install pip-audit
+
+      - name: Audit installed dependencies
+        # Audits what is actually installed, transitive packages included --
+        # not just what pyproject declares, which is where the CVEs usually are.
+        run: pip-audit --strict --progress-spinner=off
+
+  # -------------------------------------------------------------------------
+  workflows:
+    name: Workflow hardening
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[local,dev]"
+
+      - name: Assert every action is SHA-pinned and no workflow can reach AWS
+        # These checks live in the test suite rather than as greps here. A grep
+        # for `id-token: write` run over the directory containing that grep
+        # matches its own source and fails on a clean repository -- a
+        # pattern-matching check inside the text it searches is self-referential
+        # by construction. Parsing the YAML as structure cannot make that
+        # mistake.
+        run: python -m pytest tests/test_workflows.py -v
