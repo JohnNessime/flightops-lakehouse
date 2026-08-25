@@ -52,3 +52,18 @@ module "oidc_role" {
   glue_database_name   = module.glue_catalog.database_name
   athena_workgroup_arn = module.athena.workgroup_arn
 }
+
+module "orchestration" {
+  source = "./modules/orchestration"
+
+  name_prefix = local.name_prefix
+  package_dir = var.lambda_package_dir
+
+  bucket_id     = module.lake_storage.bucket_id
+  bucket_arn    = module.lake_storage.bucket_arn
+  bronze_prefix = "bronze"
+
+  schedule_expression = var.ingest_schedule_expression
+  schedule_enabled    = var.ingest_schedule_enabled
+  bbox                = var.ingest_bbox
+}

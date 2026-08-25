@@ -47,3 +47,18 @@ output "deploy_role_trusted_subject" {
   description = "The single OIDC subject permitted to assume the deploy role."
   value       = module.oidc_role.trusted_subject
 }
+
+output "ingest_function_name" {
+  description = "Name of the scheduled ingestion Lambda."
+  value       = module.orchestration.function_name
+}
+
+output "ingest_state_machine_arn" {
+  description = "ARN of the ingestion state machine."
+  value       = module.orchestration.state_machine_arn
+}
+
+output "ingest_schedule_enabled" {
+  description = "Whether the ingestion schedule is actually firing."
+  value       = module.orchestration.schedule_enabled
+}

@@ -148,3 +148,45 @@ variable "github_oidc_thumbprints" {
     "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
   ]
 }
+
+variable "lambda_package_dir" {
+  description = <<-EOT
+    Directory holding the built Lambda deployment package. Run
+    `make lambda-package` before `terraform plan`: the package is a build
+    artefact, so it is gitignored rather than committed.
+  EOT
+  type        = string
+  default     = "../build/lambda_ingest"
+}
+
+variable "ingest_schedule_expression" {
+  description = "EventBridge schedule for bronze ingestion."
+  type        = string
+  default     = "rate(1 hour)"
+}
+
+variable "ingest_schedule_enabled" {
+  description = <<-EOT
+    Whether the ingestion schedule fires. False by default so that applying
+    this configuration does not silently start a recurring job in someone's
+    account. Enabling it should be a deliberate act.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "ingest_bbox" {
+  description = <<-EOT
+    Optional geographic filter for the scheduled ingest, passed to the function
+    as environment variables. Null queries the whole world, which is valid but
+    heavy and consumes a much larger share of a shared public API's anonymous
+    rate budget.
+  EOT
+  type = object({
+    lamin = number
+    lomin = number
+    lamax = number
+    lomax = number
+  })
+  default = null
+}

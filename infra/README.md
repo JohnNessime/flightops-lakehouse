@@ -1,6 +1,6 @@
 # Infrastructure
 
-Terraform for the AWS side of the lakehouse. Four modules, no VPC, no
+Terraform for the AWS side of the lakehouse. Five modules, no VPC, no
 always-on compute, and a hard ceiling on the one service that can bill without
 bound.
 
@@ -19,6 +19,7 @@ bound.
 | `glue_catalog` | Glue database + declarative silver table with partition projection | No crawlers — [ADR 0002](../docs/adr/0002-declarative-glue-tables-over-crawlers.md) |
 | `athena` | Workgroup with a bytes-scanned cutoff, plus example named queries | The cutoff is the single most important cost control here |
 | `oidc_role` | GitHub OIDC provider + a repo-scoped, ref-scoped deploy role | No long-lived keys anywhere — which is why the repo can be public |
+| `orchestration` | Ingest Lambda, Step Functions state machine, EventBridge schedule | Schedule is **disabled by default**; applying must not silently start a recurring job |
 
 ## Ownership boundary
 
@@ -66,16 +67,24 @@ widened to every repository an owner has — including one created five minutes
 ago by someone who just got write access. Variable validation rejects a `*` in
 either the repository or the ref outright.
 
-**No statement uses `Resource = "*"`.** S3 access is scoped to named prefixes,
+**Exactly one statement uses `Resource = "*"`, and it is documented where it
+appears.** The CloudWatch Logs *delivery* API is account-scoped and rejects
+resource-qualified ARNs, so the wildcard is imposed by AWS rather than chosen;
+the actions it covers configure log delivery and cannot read or write log
+content. Every other statement is fully resource-scoped: S3 to named prefixes,
 Glue to a single named database, Athena to the one workgroup that carries the
-cost ceiling. A role able to query in any workgroup could query in one without
-a cutoff.
+cost ceiling, Lambda invocation to one function.
 
-The one unavoidable wildcard is `table/${database}/*`, because dbt creates a
-table per mart at build time and their names are not known in advance. It is
-scoped inside a single database and cannot reach another.
+Two tests keep that honest. One requires every wildcard to carry a written
+justification within a few lines of itself, so one can never be added silently.
+The other counts them, so a second cannot hide behind the first one's
+explanation.
 
-**Five checkov suppressions**, each with its reasoning inline. They are the
+There is also an unavoidable *path* wildcard, `table/${database}/*`, because
+dbt creates a table per mart at build time and their names are not known in
+advance. It is scoped inside a single database and cannot reach another.
+
+**Eighteen checkov suppressions**, each with its reasoning inline. They are the
 thing a reviewer should be most suspicious of in this directory, so
 `test_every_checkov_suppression_carries_a_real_reason` fails the build on a
 justification shorter than 60 characters. `skip=CKV_X:wontfix` does not pass
@@ -124,7 +133,12 @@ reads:
 make tf-fmt tf-validate tf-lint tf-checkov
 ```
 
-All four pass clean. Checkov reports 51 passed, 0 failed, 5 skipped.
+All four pass clean. Checkov reports 142 passed, 0 failed, 18 skipped — every
+suppression justified inline, and a test fails the build on a reason shorter
+than 60 characters.
+
+Run `make lambda-package` before `terraform plan`: the orchestration module
+zips a build directory that does not exist on a fresh clone.
 
 ## On the lock file
 
