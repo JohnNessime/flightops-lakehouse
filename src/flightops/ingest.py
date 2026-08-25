@@ -300,3 +300,26 @@ def ingest_once(
     """Acquire one snapshot and land it in bronze. Returns the file written."""
     snapshot = acquire_snapshot(settings, session=session, sleep=sleep)
     return write_snapshot(snapshot, settings)
+
+
+def replay_all_fixtures(settings: Settings) -> list[Path]:
+    """Land every committed fixture in bronze without touching the network.
+
+    This exists so CI and the quickstart have a bronze layer to work from with
+    no API call at all -- not a live fetch that falls back, which would still
+    make a request, still be subject to rate limiting, and still be flaky in a
+    way that has nothing to do with the code under test.
+
+    Every object written is tagged `fixture-replay`, so nothing downstream can
+    mistake a CI run's data for observation.
+    """
+    fixtures = sorted(settings.fixture_dir.glob(FIXTURE_GLOB))
+    if not fixtures:
+        raise IngestError(f"no fixtures matching {FIXTURE_GLOB} in {settings.fixture_dir}")
+
+    written = [write_snapshot(load_fixture(settings, path.name), settings) for path in fixtures]
+    logger.info(
+        "replayed fixtures into bronze",
+        extra={"fixtures": len(fixtures), "objects": len(written)},
+    )
+    return written

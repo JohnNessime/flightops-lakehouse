@@ -17,7 +17,7 @@ from collections.abc import Sequence
 
 from flightops import __version__
 from flightops.config import ConfigError, Settings
-from flightops.ingest import IngestError, ingest_once
+from flightops.ingest import IngestError, ingest_once, replay_all_fixtures
 from flightops.normalise import (
     NormaliseError,
     find_bronze_objects,
@@ -83,6 +83,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = sub.add_parser("ingest", help="fetch one snapshot into the bronze layer")
     ingest.add_argument(
+        "--from-fixtures",
+        action="store_true",
+        help=(
+            "replay every committed fixture into bronze without any network call. "
+            "This is what CI uses: a live fetch that falls back still makes a request "
+            "and is still subject to rate limiting."
+        ),
+    )
+    ingest.add_argument(
         "--allow-fixture-fallback",
         action="store_true",
         help=(
@@ -117,6 +126,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     if args.command == "ingest":
+        if args.from_fixtures:
+            try:
+                written_paths = replay_all_fixtures(settings)
+            except IngestError as exc:
+                logger.error("fixture replay failed: %s", exc)
+                return 1
+            logger.info(
+                "ingest complete",
+                extra={"objects": len(written_paths), "source": "fixture-replay"},
+            )
+            return 0
+
         if args.allow_fixture_fallback:
             settings = replace_fallback(settings, allowed=True)
         try:

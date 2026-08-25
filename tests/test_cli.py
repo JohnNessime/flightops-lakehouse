@@ -247,3 +247,23 @@ def test_unreadable_bronze_returns_one(cli_env: Path) -> None:
     (partition / "states_broken.json").write_text("{not json", encoding="utf-8")
 
     assert main(["normalise"]) == 1
+
+
+def test_ingest_from_fixtures_needs_no_network(cli_env: Path) -> None:
+    """The CI path. `responses` is not activated, so a stray request would hit
+    the conftest network guard and fail rather than be quietly mocked."""
+    assert main(["ingest", "--from-fixtures"]) == 0
+
+    envelopes = _written_envelopes(cli_env)
+    assert len(envelopes) == len(list(FIXTURE_DIR.glob("states_*.json")))
+    assert {e["ingest"]["source"] for e in envelopes} == {SOURCE_FIXTURE}
+
+
+def test_ingest_from_fixtures_with_none_available_returns_one(
+    cli_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    empty = tmp_path / "no-fixtures"
+    empty.mkdir()
+    monkeypatch.setenv(PREFIX + "FIXTURE_DIR", str(empty))
+
+    assert main(["ingest", "--from-fixtures"]) == 1

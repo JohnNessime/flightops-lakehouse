@@ -27,6 +27,7 @@ from flightops.ingest import (
     ingest_once,
     load_fixture,
     partition_path,
+    replay_all_fixtures,
     write_snapshot,
 )
 
@@ -326,3 +327,47 @@ def test_captured_fixtures_match_the_opensky_schema(
         for state in payload["states"]:
             assert len(state) == 17
             assert isinstance(state[0], str) and len(state[0]) == 6
+
+
+# --------------------------------------------------------------------------
+# Offline replay: what CI uses
+# --------------------------------------------------------------------------
+
+
+def test_replay_all_fixtures_writes_every_one(settings: Settings) -> None:
+    written = replay_all_fixtures(settings)
+
+    expected = len(list(settings.fixture_dir.glob("states_*.json")))
+    assert len(written) == expected
+    assert all(path.exists() for path in written)
+
+
+def test_replayed_objects_are_tagged_as_replay_not_observation(settings: Settings) -> None:
+    """A CI run must never produce bronze that claims to be observation."""
+    for path in replay_all_fixtures(settings):
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        assert envelope["ingest"]["source"] == SOURCE_FIXTURE
+
+
+def test_replay_spans_the_partitions_the_fixtures_cover(settings: Settings) -> None:
+    written = replay_all_fixtures(settings)
+
+    hours = {path.parent.name for path in written}
+    assert len(hours) >= 2, "the fixtures deliberately span more than one hour"
+
+
+def test_replay_makes_no_network_call(settings: Settings) -> None:
+    """conftest._no_network would raise on any real connection; `responses` is
+    deliberately not activated here, so an accidental request cannot be mocked
+    into passing either."""
+    assert replay_all_fixtures(settings)
+
+
+def test_replay_with_no_fixtures_raises(settings: Settings, tmp_path: Path) -> None:
+    import dataclasses
+
+    empty = dataclasses.replace(settings, fixture_dir=tmp_path / "none")
+    (tmp_path / "none").mkdir()
+
+    with pytest.raises(IngestError, match="no fixtures matching"):
+        replay_all_fixtures(empty)
