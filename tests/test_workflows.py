@@ -223,3 +223,28 @@ def test_every_job_has_a_timeout() -> None:
     for path in WORKFLOWS:
         for name, job in _load(path).get("jobs", {}).items():
             assert job.get("timeout-minutes"), f"{path.name}:{name} has no timeout"
+
+
+def test_make_ci_mirrors_the_workflow_steps() -> None:
+    """`make ci` claims to be what CI runs. It once was not: it went straight
+    to dbt-build without the lake-building step the workflow performs, so it
+    failed on any clone that had not already run the pipeline by hand. A local
+    reproduction of CI that does not reproduce CI is worse than none.
+    """
+    makefile = (Path(__file__).parent.parent / "Makefile").read_text(encoding="utf-8")
+    ci_target = next(line for line in makefile.splitlines() if line.startswith("ci:"))
+
+    for prerequisite in ("lint", "test", "pipeline"):
+        assert prerequisite in ci_target, f"make ci does not run {prerequisite}"
+
+
+def test_make_pipeline_seeds_bronze_before_normalising() -> None:
+    """normalise has nothing to read on a fresh clone unless bronze is built
+    first. The README's headline quickstart is `make install && make pipeline`,
+    so this is the single path most likely to be tried by someone who has just
+    found the repository."""
+    makefile = (Path(__file__).parent.parent / "Makefile").read_text(encoding="utf-8")
+    pipeline = next(line for line in makefile.splitlines() if line.startswith("pipeline:"))
+
+    assert "replay" in pipeline
+    assert pipeline.index("replay") < pipeline.index("normalise")

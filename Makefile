@@ -70,13 +70,25 @@ dbt/profiles.yml:
 > cp dbt/profiles.example.yml dbt/profiles.yml
 > @echo "created dbt/profiles.yml from the example (gitignored; duckdb target needs no edits)"
 
-ingest:  ## Fetch one live snapshot into bronze
+DATA_ROOT ?= data
+
+ensure-data:
+# dbt-duckdb will not create the parent directory of its database file, so a
+# fresh clone fails with a bare IOException before any model runs. Done in
+# Python rather than `mkdir -p`, which is unavailable when make falls back to
+# cmd.exe on Windows.
+> @$(PY) -c "import pathlib; pathlib.Path('$(DATA_ROOT)').mkdir(parents=True, exist_ok=True)"
+
+ingest: | ensure-data  ## Fetch one live snapshot from OpenSky into bronze
 > $(BIN)/flightops ingest
+
+replay: | ensure-data  ## Replay the committed fixtures into bronze. No network.
+> $(BIN)/flightops ingest --from-fixtures
 
 normalise:  ## Bronze -> typed silver Parquet, gated on the quality contract
 > $(BIN)/flightops normalise
 
-dbt-build: dbt/profiles.yml  ## Seed, run and test every dbt model on DuckDB
+dbt-build: dbt/profiles.yml | ensure-data  ## Seed, run and test every dbt model on DuckDB
 > $(DBT) build $(DBT_DIRS)
 
 dbt-test: dbt/profiles.yml  ## Run dbt tests only
@@ -86,9 +98,12 @@ dbt-docs: dbt/profiles.yml  ## Generate and serve the dbt docs site
 > $(DBT) docs generate $(DBT_DIRS)
 > $(DBT) docs serve $(DBT_DIRS)
 
-pipeline: normalise dbt-build  ## Full local pipeline over whatever is in bronze
+pipeline: replay normalise dbt-build  ## Full offline pipeline from committed fixtures
 
-ci: lint test dbt-build  ## What CI runs. No AWS credentials at any point.
+# Mirrors .github/workflows/ci.yml step for step, including building the lake
+# from fixtures first. Without that, dbt has no source data and this target
+# fails on a fresh clone -- which is precisely how the omission was found.
+ci: lint test pipeline  ## Exactly what CI runs. No AWS credentials at any point.
 
 tf-fmt:  ## terraform fmt -check -recursive
 > terraform -chdir=infra fmt -check -recursive
