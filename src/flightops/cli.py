@@ -18,6 +18,13 @@ from collections.abc import Sequence
 from flightops import __version__
 from flightops.config import ConfigError, Settings
 from flightops.ingest import IngestError, ingest_once
+from flightops.normalise import (
+    NormaliseError,
+    find_bronze_objects,
+    normalise,
+    write_silver,
+)
+from flightops.quality import QualityError, assert_quality
 
 logger = logging.getLogger("flightops")
 
@@ -83,6 +90,18 @@ def build_parser() -> argparse.ArgumentParser:
             "The resulting bronze object is tagged fixture-replay, never as observation."
         ),
     )
+
+    normalise = sub.add_parser(
+        "normalise", help="convert bronze snapshots into typed silver Parquet"
+    )
+    normalise.add_argument(
+        "--skip-quality",
+        action="store_true",
+        help=(
+            "write silver without enforcing the quality contract. "
+            "Intended for inspecting a bad batch, not for routine use."
+        ),
+    )
     return parser
 
 
@@ -106,6 +125,40 @@ def main(argv: Sequence[str] | None = None) -> int:
             logger.error("ingestion failed: %s", exc)
             return 1
         logger.info("ingest complete: %s", written.as_posix())
+        return 0
+
+    if args.command == "normalise":
+        try:
+            paths = find_bronze_objects(settings)
+            if not paths:
+                logger.error("no bronze objects under %s", settings.bronze_root.as_posix())
+                return 1
+            result = normalise(paths)
+        except NormaliseError as exc:
+            logger.error("normalisation failed: %s", exc)
+            return 1
+
+        # Validate before writing. Checking afterwards would leave a bad batch
+        # on disk for a downstream reader to find first, which defeats the
+        # point of having a contract at this boundary at all.
+        if not args.skip_quality:
+            try:
+                assert_quality(result.table)
+            except QualityError as exc:
+                logger.error("quality contract failed, nothing written: %s", exc)
+                return 3
+
+        written = write_silver(result.table, settings)
+        logger.info(
+            "normalise complete",
+            extra={
+                "files_read": result.files_read,
+                "rows_in": result.rows_in,
+                "rows_out": result.rows_out,
+                "duplicates_removed": result.duplicates_removed,
+                "partitions": len(written),
+            },
+        )
         return 0
 
     return 2

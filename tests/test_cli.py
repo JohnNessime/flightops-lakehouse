@@ -158,3 +158,84 @@ def test_context_formatter_omits_brackets_when_no_context() -> None:
     )
 
     assert ContextFormatter(LOG_FORMAT).format(record).endswith("plain message")
+
+
+# --------------------------------------------------------------------------
+# normalise
+# --------------------------------------------------------------------------
+
+
+def _seed_bronze(data_root: Path) -> None:
+    """Copy the committed fixtures into a bronze partition."""
+    import shutil
+
+    partition = data_root / "bronze" / "dt=2026-08-25" / "hour=09"
+    partition.mkdir(parents=True, exist_ok=True)
+    for source in sorted(FIXTURE_DIR.glob("states_*.json")):
+        shutil.copy(source, partition / source.name)
+
+
+def test_normalise_writes_silver_and_returns_zero(cli_env: Path) -> None:
+    _seed_bronze(cli_env)
+
+    assert main(["normalise"]) == 0
+
+    written = sorted((cli_env / "silver").rglob("*.parquet"))
+    assert len(written) == 1
+    assert written[0].parent.name.startswith("hour=")
+
+
+def test_normalise_with_no_bronze_returns_one(cli_env: Path) -> None:
+    assert main(["normalise"]) == 1
+
+
+def test_normalise_deduplicates_the_overlapping_fixtures(cli_env: Path) -> None:
+    import pyarrow.parquet as pq
+
+    _seed_bronze(cli_env)
+    main(["normalise"])
+
+    table = pq.read_table(next((cli_env / "silver").rglob("*.parquet")))
+    assert table.num_rows < 440, "the three fixtures overlap and must collapse"
+
+
+def test_quality_failure_returns_three_and_writes_nothing(
+    cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch that fails the contract must leave no silver behind for a
+    downstream reader to trip over."""
+    from flightops import cli as cli_module
+    from flightops.quality import QualityError
+
+    def always_fails(_table: Any) -> None:
+        raise QualityError("synthetic contract failure")
+
+    _seed_bronze(cli_env)
+    monkeypatch.setattr(cli_module, "assert_quality", always_fails)
+
+    assert main(["normalise"]) == 3
+    assert not list((cli_env / "silver").rglob("*.parquet")), "nothing may be written"
+
+
+def test_skip_quality_writes_despite_a_failing_contract(
+    cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from flightops import cli as cli_module
+    from flightops.quality import QualityError
+
+    def always_fails(_table: Any) -> None:
+        raise QualityError("synthetic contract failure")
+
+    _seed_bronze(cli_env)
+    monkeypatch.setattr(cli_module, "assert_quality", always_fails)
+
+    assert main(["normalise", "--skip-quality"]) == 0
+    assert list((cli_env / "silver").rglob("*.parquet"))
+
+
+def test_unreadable_bronze_returns_one(cli_env: Path) -> None:
+    partition = cli_env / "bronze" / "dt=2026-08-25" / "hour=09"
+    partition.mkdir(parents=True, exist_ok=True)
+    (partition / "states_broken.json").write_text("{not json", encoding="utf-8")
+
+    assert main(["normalise"]) == 1
